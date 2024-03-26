@@ -70,7 +70,7 @@ pub async fn dynamic_script(ctx: &HttpContext, mut req: Request<Body>,id:&str) -
         PLUGIN_MANAGER.get_ctx(id).await,
         response_msg(500, "Invalid plugin id")
     );
-    let ctx = &ctx.ctx;
+    let ctx = ctx.ctx.as_ref().unwrap();
     let ctx = ctx.lock().await;
     let response = async_with!(ctx=>|ctx|{
         let res=server::call_function::<Option<String>,_>(&ctx, "dynamicScript", (link, scope_key)).await.catch(&ctx);
@@ -113,7 +113,7 @@ async fn ask(_ctx: &HttpContext, req: Request<Body>,id:&str) -> Response<Body> {
         PLUGIN_MANAGER.get_ctx(id).await,
         response_msg(500, "invalid plugin id")
     );
-    let ctx = &ctx.ctx;
+    let ctx =ctx.ctx.as_ref().unwrap();
     let ctx = ctx.lock().await;
     let json = async_with!(ctx=>|ctx|{
         let body=jsbind::json_to_js(data, &ctx).unwrap();

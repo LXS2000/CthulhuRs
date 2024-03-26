@@ -285,7 +285,7 @@ pub async fn install(dir: &str) {
 
     let id = {
         let id = uuid::Uuid::new_v4().simple().to_string();
-        utils::hash(id.as_bytes(), 10,12)
+        utils::hash(id.as_bytes(), 10, 12)
     };
     let pool = &DBPOOL.clone();
     {
@@ -519,8 +519,8 @@ pub async fn tree_names(_ctx: HttpContext, req: Request<Body>) -> Response<Body>
         PLUGIN_MANAGER.get_ctx(&id).await,
         response_msg(500, "插件未被启用加载")
     );
-    let collect = ctx
-        .db
+    let db=(ctx.db.as_ref()).unwrap();
+    let collect = db
         .tree_names()
         .into_iter()
         .map(|v| String::from_utf8(v.to_vec()).unwrap())
@@ -536,7 +536,8 @@ pub async fn tree_list(_ctx: HttpContext, req: Request<Body>) -> Response<Body> 
         PLUGIN_MANAGER.get_ctx(&id).await,
         response_msg(500, "插件未被启用加载")
     );
-    let tree = auto_result!(ctx.db.open_tree(tree),err=>response_msg(500, err.to_string()));
+    let tree =
+        auto_result!(ctx.db.as_ref().unwrap().open_tree(tree),err=>response_msg(500, err.to_string()));
     let mut kvs = vec![];
     for ele in tree.iter() {
         let (k, v) = auto_result!(ele,err=>response_msg(500, err.to_string()));

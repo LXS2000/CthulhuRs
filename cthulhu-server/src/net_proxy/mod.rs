@@ -32,7 +32,7 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::{self, Message};
 use tracing::error;
 use error::Error;
-pub use decoder::{decode_request, decode_response, encode_body, encode_request, encode_response};
+pub use decoder::{decode_request, decode_response, encode_body, encode_response};
 
 pub use proxy::*;
 

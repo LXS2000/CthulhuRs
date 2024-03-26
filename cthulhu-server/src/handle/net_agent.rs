@@ -25,7 +25,7 @@ use crate::{
 pub async fn on_request(scope_key: &Scope, jsreq: JsRequest) -> JsHttpAction {
     let (_all, _monitors, modify) = PLUGIN_MANAGER.ctxs_by_host(&scope_key.host).await;
     let modify = auto_option!(modify, JsHttpAction::release(jsreq));
-    let ctx = &modify.ctx;
+    let ctx = &modify.ctx.as_ref().unwrap();
     let ctx = ctx.lock().await;
     let scope_key = scope_key.clone();
     return async_with!(ctx=>|ctx|{
@@ -49,7 +49,7 @@ pub async fn on_response(scope_key: &Scope, jsres: JsResponse) -> JsResponse {
     let (_all, _monitors, modify) = PLUGIN_MANAGER.ctxs_by_host(&scope_key.host).await;
     let modify = auto_option!(modify, jsres);
 
-    let ctx = &modify.ctx;
+    let ctx = modify.ctx.as_ref().unwrap();
     let ctx = ctx.lock().await;
     let scope_key = scope_key.clone();
     let result: JsResponse = async_with!(ctx=>|ctx|{
@@ -75,7 +75,7 @@ pub async fn on_message(scope_key: &Scope, msg: JsMessage, client_to_server: boo
     let (_all, _monitors, modify) = PLUGIN_MANAGER.ctxs_by_host(&scope_key.host).await;
     let modify = auto_option!(modify, JsWsAction::release(msg));
 
-    let ctx = &modify.ctx;
+    let ctx = modify.ctx.as_ref().unwrap();
     let ctx = ctx.lock().await;
 
     let scope_key = scope_key.clone();
@@ -109,7 +109,7 @@ pub async fn watch_request(scope_key: &Scope, jsreq: JsRequest) {
     for plugin in monitors {
         let jsreq = jsreq.clone();
         let fut = async move {
-            let ctx = &plugin.ctx;
+            let ctx = plugin.ctx.as_ref().unwrap();
             let ctx = ctx.lock().await;
             let scope_key = scope_key.clone();
             async_with!(ctx=> |ctx|{
@@ -139,7 +139,7 @@ pub async fn watch_response(scope_key: &Scope, jsres: JsResponse) {
     for plugin in monitors {
         let jsres = jsres.clone();
         let fut = async move {
-            let ctx = &plugin.ctx;
+            let ctx = plugin.ctx.as_ref().unwrap();
             let ctx = ctx.lock().await;
             let scope_key = scope_key.clone();
             async_with!(ctx=> |ctx|{
@@ -166,7 +166,7 @@ pub async fn watch_message(scope_key: &Scope, jsmsg: JsMessage, client_to_server
     for plugin in monitors {
         let jsmsg = jsmsg.clone();
         let fut = async move {
-            let ctx = &plugin.ctx;
+            let ctx = plugin.ctx.as_ref().unwrap();
             let ctx = ctx.lock().await;
             let scope_key = scope_key.clone();
             async_with!(ctx=> |ctx|{
@@ -235,7 +235,7 @@ pub async fn content_security_policy(plugins: &Vec<Arc<PluginCtx>>, csp_str: &st
     }
 
     for plugin in plugins {
-        let ctx = &plugin.ctx;
+        let ctx = plugin.ctx.as_ref().unwrap();
 
         let ctx = ctx.lock().await;
 

@@ -29,7 +29,7 @@ async fn linked(
         return Ok(());
     }
     for plugin in all {
-        let ctx = &plugin.ctx;
+        let ctx = plugin.ctx.as_ref().unwrap();
         let ctx = ctx.lock().await;
         let _: rquickjs::Result<()> = async_with!(ctx=>|ctx|{
             let res=server::call_function::<(),_>(&ctx, "onClientOpen", (session_type.clone(),session_id.clone(),scope_key.clone())).await
@@ -80,7 +80,7 @@ pub async fn after_close(session_type: &String, session_id: &String, scope_key: 
     let mut future_vec = vec![];
     for plugin in all {
         let f = async move {
-            let ctx = &plugin.ctx;
+            let ctx = plugin.ctx.as_ref().unwrap();
             let ctx = ctx.lock().await;
             let session_type = session_type.clone();
             let session_id = session_id.clone();

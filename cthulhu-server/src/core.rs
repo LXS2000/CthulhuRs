@@ -70,9 +70,9 @@ impl ClientManager {
 
 pub struct PluginCtx {
     pub plugin: Plugin,
-    pub ctx: Mutex<AsyncContext>,
-    pub rt: AsyncRuntime,
-    pub db: Db,
+    pub ctx: Option<Mutex<AsyncContext>>,
+    pub rt: Option<AsyncRuntime>,
+    pub db: Option<Db>,
 }
 impl Debug for PluginCtx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -86,19 +86,25 @@ impl Debug for PluginCtx {
 }
 impl PluginCtx {
     pub async fn new(plugin: Plugin) -> Result<Self, String> {
+        if plugin.server_path.is_empty() {
+            return Ok(Self {
+                plugin,
+                ctx: None,
+                rt: None,
+                db: None,
+            });
+        }
         let (ctx, rt, db) = jsbind::content(&plugin).await?;
         println!("loaded plugin: {}, ID = '{}'", &plugin.name, &plugin.id);
         let ctx = Mutex::new(ctx);
         Ok(Self {
             plugin,
-            ctx,
-            rt,
-            db,
+            ctx: Some(ctx),
+            rt: Some(rt),
+            db: Some(db),
         })
     }
 }
-
-
 
 #[derive(Default)]
 pub struct PluginManager {
@@ -122,6 +128,9 @@ impl PluginManager {
         guard
             .iter()
             .filter(|(_k, ctx)| {
+                if ctx.plugin.server_path.is_empty() {
+                    return false;
+                }
                 let matches = &ctx.plugin.matches;
                 matches.is_empty() || matches.split(",").any(|m| utils::mini_match(m, host))
             })
@@ -139,8 +148,7 @@ impl PluginManager {
             a.plugin
                 .net_modify
                 .cmp(&b.plugin.net_modify)
-                .then_with(|| a.plugin.install_time.cmp(&b.plugin.install_time))
-                .reverse()
+                .then_with(|| a.plugin.install_time.cmp(&b.plugin.install_time).reverse())
         });
         (matched_ctxs, net_monitor_ctxs, net_modify_ctxs.pop())
     }

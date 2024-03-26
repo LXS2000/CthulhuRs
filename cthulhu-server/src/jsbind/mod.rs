@@ -3,15 +3,18 @@ use std::error::Error;
 use futures::future::Either;
 use relative_path::RelativePath;
 use rquickjs::{
-    async_with, function::This, loader::{BuiltinLoader, BuiltinResolver, ModuleLoader, NativeLoader, Resolver, ScriptLoader}, AsyncContext, AsyncRuntime, CatchResultExt, CaughtError, Ctx, Function, Symbol
+    async_with,
+    function::This,
+    loader::{BuiltinLoader, BuiltinResolver, ModuleLoader, NativeLoader, Resolver, ScriptLoader},
+    AsyncContext, AsyncRuntime, CatchResultExt, CaughtError, Ctx, Function, Symbol,
 };
 use serde_json::json;
 
 use sled::Db;
 use tracing::instrument;
 
-use crate::{auto_result, core::PluginCtx};
 use crate::handle::model::Plugin;
+use crate::{auto_result, core::PluginCtx};
 
 use self::server::Scope;
 
@@ -19,11 +22,11 @@ use self::server::Scope;
 pub mod console;
 pub mod server;
 pub mod store;
+pub mod timer;
 
 //模块
 pub mod file;
 pub mod http;
-pub mod timer;
 pub mod utils;
 pub mod ws;
 
@@ -58,16 +61,6 @@ pub async fn content(plugin: &Plugin) -> Result<(AsyncContext, AsyncRuntime, Db)
         let rs = BuiltinResolver::default();
         let ld = ModuleLoader::default();
 
-        // rs.add_module("http")
-        //     .add_module("ws")
-        //     .add_module("utils")
-        //     .add_module("timer")
-        //     .add_module("file");
-        // ld.add_module("http", js_http)
-        //     .add_module("ws", js_ws)
-        //     .add_module("utils", js_utils)
-        //     .add_module("timer", js_timer)
-        //     .add_module("file", js_file);
         let rs = (
             rs,
             PluginResolver {
@@ -263,17 +256,15 @@ fn js_to_string(msg: rquickjs::Value) -> rquickjs::Result<String> {
             };
             if name == "Object" {
                 let ctx = obj.ctx().clone();
-                let json_stringify =ctx.json_stringify(obj)?;
-                let s=match json_stringify {
-                    Some(v) => {v.to_string()?},
-                    None => {
-                        String::from("{}")
-                    },
+                let json_stringify = ctx.json_stringify(obj)?;
+                let s = match json_stringify {
+                    Some(v) => v.to_string()?,
+                    None => String::from("{}"),
                 };
                 return Ok(s);
             }
-            let func = obj.get::<_,Function<'_>>("toString")?;
-            let call = func.call::<_,String>((This(obj),))?;
+            let func = obj.get::<_, Function<'_>>("toString")?;
+            let call = func.call::<_, String>((This(obj),))?;
             call
         }
         rquickjs::Type::Module => {
@@ -335,112 +326,40 @@ pub fn throw_js_err<'js, E: Into<&'js str>>(e: E, ctx: Ctx<'js>) -> rquickjs::Er
     ctx.throw(rquickjs::String::from_str(ctx.clone(), e).unwrap().into())
 }
 
-// pub fn get_constructor_name(obj: &rquickjs::Object<'_>) -> rquickjs::Result<String> {
-//     let constructor = obj.get::<_, rquickjs::Object<'_>>("constructor")?;
-//     constructor.get::<_, String>("name")
-// }
-
-// pub fn to_promise<'a, T: FromJs<'a> + 'a>(
-//     ctx: &Ctx<'a>,
-//     val: rquickjs::Value<'a>,
-// ) -> Maybe<T, rquickjs::promise::Promise<'a, T>> {
-//     if val.is_object() {
-//         let obj = val.into_object().unwrap();
-//         if let Ok(name) = get_constructor_name(&obj) {
-//             if name == "Promise" {
-//                 let val = obj.into_value();
-//                 let promise = rquickjs::promise::Promise::<'a, T>::from_js(ctx, val).catch(ctx);
-//                 let promise = auto_result!(promise,err=>{
-//                     handle_js_error(err,ctx);
-//                     panic!()
-//                 });
-//                 return Maybe::Right(promise);
-//             }
-//             return Maybe::Left(T::from_js(ctx, obj.into_value()).unwrap());
-//         }
-//         return Maybe::Left(T::from_js(ctx, obj.into_value()).unwrap());
-//     }
-//     Maybe::Left(T::from_js(ctx, val).unwrap())
-// }
-
-// mod test {
-//     use rquickjs::{FromJs, IntoJs, Module};
-
-//     use crate::handle::api::plugin;
-
-//     use super::*;
-//     #[test]
-//     pub fn test_to_promise() {
-//         let runtime = tokio::runtime::Runtime::new().unwrap();
-//         runtime.block_on(async {
-//             let rt = AsyncRuntime::new().unwrap();
-//             let ctx = AsyncContext::full(&rt).await.unwrap();
-
-//             let js = r"export function test(){return 1}";
-//             let a = async_with!(ctx=>|ctx|{
-//                    let m= ctx.clone().compile("a", js).unwrap();
-//                    let function= m.get::<_,rquickjs::Function<'_>>("test").unwrap();
-//                    let pro=rquickjs::promise::Promised::from(async move{
-//                     function.call::<_,i32>(()).unwrap()
-//                    }).into_js(&ctx).unwrap();
-//                    rquickjs::promise::Promise::<'_,i32>::from_js(&ctx,pro).unwrap().await.unwrap()
-//             })
-//             .await;
-//             println!("a={a}");
-
-//             let js = r"export async function test(){return 3}";
-//             let b = async_with!(ctx=>|ctx|{
-//                 let m= ctx.clone().compile("a", js).unwrap();
-//                 let function= m.get::<_,rquickjs::Function<'_>>("test").unwrap();
-//                    let pro=rquickjs::promise::Promised::from(async move{
-//                     function.call::<_,rquickjs::Value<'_>>(()).unwrap()
-//                    }).into_js(&ctx).unwrap();
-//                    rquickjs::promise::Promise::<'_,i32>::from_js(&ctx,pro).unwrap().await.unwrap()
-//             })
-//             .await;
-//             println!("b={b}");
-//         })
-//     }
-// }
-
-
 impl PluginCtx {
-    pub async fn dynamic_scripts(&self,scope_key:Scope)->Vec<String>{
-        let mut scripts=vec![];
-        for link in self
-.plugin
-.dynamic_links
-.split(",")
-.map(|v| v.trim())
-.filter(|v| !v.is_empty())
-{
-let ctx = &self.ctx;
-let ctx = ctx.lock().await;
-let scope_key = scope_key.clone();
-let script = async_with!(ctx=>|ctx|{
-    let res=server::call_function::<Option<String>,_>(&ctx, "dynamicScript", (link, scope_key)).await.catch(&ctx);
-    let res=auto_result!(res,err=>{
-        let e= format!(r##"throw new Error("{err}")"##);
-        handle_js_error(err,&ctx);
-        return Some(e);
-    });
-    match res {
-       Either::Left(value) =>{
-            return value;
-        },
-       Either::Right(_args) => {
-                let e= format!(r##"throw new Error("dynamicScript not a function")"##);
-                return Some(e);
-            },
+    pub async fn dynamic_scripts(&self, scope_key: Scope) -> Vec<String> {
+        let mut scripts = vec![];
+        let links = self
+            .plugin
+            .dynamic_links
+            .split(",")
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty());
+        for link in links {
+            let ctx = self.ctx.as_ref().unwrap();
+            let ctx = ctx.lock().await;
+            let scope_key = scope_key.clone();
+            let script = async_with!(ctx=>|ctx|{
+                let res=server::call_function::<Option<String>,_>(&ctx, "dynamicScript", (link, scope_key)).await.catch(&ctx);
+                let res=auto_result!(res,err=>{
+                    let e= format!(r##"throw new Error("{err}")"##);
+                    handle_js_error(err,&ctx);
+                    return Some(e);
+                });
+                match res {
+                   Either::Left(value) =>{
+                        return value;
+                    },
+                   Either::Right(_args) => {
+                            let e= format!(r##"throw new Error("dynamicScript not a function")"##);
+                            return Some(e);
+                        },
+                    }
+               
+            })
+            .await;
+            scripts.push(script.unwrap_or_default());
         }
-   
-})
-.await;
-scripts.push(script.unwrap_or_default());
-
-
+        scripts
     }
-    scripts
-}
-
 }
