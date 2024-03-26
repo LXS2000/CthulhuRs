@@ -1,0 +1,32 @@
+{
+  "name": "cthulhu-ua-extension",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "serve": "vue-cli-service serve --port 8081",
+    "plugin build": "vue-cli-service build",
+    "lint": "vue-cli-service lint",
+    "plugin dev": "vue-cli-service build development",
+    "watch": "vue-cli-service build --watch"
+  },
+  "dependencies": {
+    "@babel/polyfill": "^7.12.1",
+    "@babel/preset-env": "^7.23.3",
+    "@element-plus/icons-vue": "^2.1.0",
+    "babel-loader": "^9.1.3",
+    "core-js": "^3.8.3",
+    "element-plus": "^2.3.4",
+    "vue": "^3.2.13"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.3",
+    "@vue/cli-plugin-babel": "~5.0.0",
+    "@vue/cli-service": "~5.0.0",
+    "webpack-extension-reloader": "^1.1.4",
+    "copy-webpack-plugin": "^6.0.2",
+    "vue-cli-plugin-browser-extension": "npm:@rhilip/vue-cli-plugin-browser-extension@^0.27.0"
+  },
+  "browserslist": [
+    "Chrome >= 73"
+  ]
+}

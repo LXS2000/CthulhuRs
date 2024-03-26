@@ -1,0 +1,46 @@
+{
+	"manifest_version": 3,
+	"version":"6.11",
+
+	"name": "cthulhu-scope-extension",
+	"description": "和CthulhuRs server辅助搭配使用，用于更细粒度的域控制",
+	"homepage_url": "https://server.cthulhu.fun/",
+	"default_locale": "en",
+
+	"permissions": [
+		"storage",
+		"webNavigation",
+		"identity",
+		"identity.email",
+		"declarativeNetRequest",
+		"declarativeNetRequestWithHostAccess",
+		"declarativeNetRequestFeedback"],
+
+	"host_permissions": [
+		"<all_urls>"
+	],
+	"icons": {
+		"16": "assets/icon/logo.png",
+		"32": "assets/icon/logo.png",
+		"48": "assets/icon/logo.png",
+		"128": "assets/icon/logo.png"
+	},
+
+	"background": {
+		"service_worker": "js/background.js"
+	},
+
+	"action": {
+		"default_icon": "assets/icon/logo.png",
+		"default_title": "popup",
+		"default_popup": "index.html"
+	},
+
+	"web_accessible_resources": [{
+		"resources": ["img/*", "icon/*","js/*"],
+		"matches": ["<all_urls>"]
+	}],
+	"content_security_policy": {
+		"extension_pages": "script-src 'self'; object-src 'self'; frame-src 'self'; child-src 'self';"
+	}
+}
