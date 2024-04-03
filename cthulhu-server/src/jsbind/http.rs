@@ -149,7 +149,10 @@ impl From<&hyper::Uri> for JsUri {
         let path = if let Some(pq) = uri.path_and_query() {
             if let Some(query) = pq.query() {
                 for item in query.split("&") {
-                    let (key, value) = item.split_once("=").unwrap();
+                    let (key, value) = match item.split_once("=") {
+                        Some(v) => v,
+                        None => continue,
+                    };
                     params.insert(key.to_string(), value.to_string());
                 }
             }
@@ -639,7 +642,7 @@ pub struct JsHttpAction {
 impl JsHttpAction {
     #[qjs(constructor)]
     pub fn new(ctx: rquickjs::Ctx<'_>) -> rquickjs::Result<Self> {
-        Err(throw_js_err("Illegal constructor",ctx))
+        Err(throw_js_err("Illegal constructor", ctx))
     }
     #[qjs(static)]
     pub fn reject() -> Self {

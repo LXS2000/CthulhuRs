@@ -32,13 +32,6 @@ const subPage =
                     title: "运行日志"
                 },
                 component: () => import('./subPages/Log.vue')
-            }, {
-                path: 'edit',
-                name: 'Edit',
-                meta: {
-                    title: "插件编辑"
-                },
-                component: () => import('./subPages/PluginEdit.vue')
             },
         ]
     };
