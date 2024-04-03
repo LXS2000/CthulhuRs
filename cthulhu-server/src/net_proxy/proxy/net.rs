@@ -21,7 +21,14 @@ use hyper::{
 use hyper::{header::Entry, server::conn::Http, service::service_fn, upgrade::Upgraded, Body};
 use reqwest::Client;
 use rustls::{server::DnsName, ClientConfig};
-use std::{convert::Infallible, future::Future, io, net::SocketAddr, sync::Arc};
+use std::{
+    convert::Infallible,
+    future::Future,
+    io,
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
+    sync::Arc,
+};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite},
     net::TcpStream,
@@ -55,15 +62,21 @@ async fn connect_to_dns(
 ) -> io::Result<TlsStream<TcpStream>> {
     let stream = TcpStream::connect(authority.as_ref()).await?;
     let connector = TlsConnector::from(ca);
-
-    let dnsname = match DnsName::try_from_ascii(authority.host().as_bytes()) {
-        Ok(v) => {v},
-        Err(e) => {
-            panic!("{authority}:{e}",)
-        },
+    let host = authority.host();
+    let server_name = match DnsName::try_from_ascii(host.as_bytes()) {
+        Ok(v) => rustls::ServerName::DnsName(v),
+        Err(_e) => {
+            let ip = match IpAddr::from_str(host) {
+                Ok(v) => v,
+                Err(_e) => {
+                    panic!("invalid server name:{authority}")
+                }
+            };
+            let ip_address = rustls::ServerName::IpAddress(ip);
+            ip_address
+        }
     };
-    let dnsname = rustls::ServerName::DnsName(dnsname);
-    let stream = connector.connect(dnsname, stream).await?;
+    let stream = connector.connect(server_name, stream).await?;
     Ok(stream)
 }
 pub(crate) struct NetProxy<CA, H, W, P> {

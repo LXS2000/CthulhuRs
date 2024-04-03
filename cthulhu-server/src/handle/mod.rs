@@ -702,7 +702,9 @@ impl HttpHandler for Handler {
 
                 let html_inject = |html: String| -> String {
                     //有的接口响应头返回的是text/html 实际却是其他格式 所以通过<!DOCTYPE html>区分
-                    if !html.starts_with("<!DOCTYPE html>") {
+                  
+                    let tag = &html.trim_start()[0..15];
+                    if !tag.eq_ignore_ascii_case("<!doctype html>") {
                         return html;
                     }
                     let document = kuchiki::parse_html().one(html);
@@ -750,6 +752,8 @@ impl HttpHandler for Handler {
                         head.as_node().prepend(script);
                     }
                     let html = document.to_string();
+                    println!("injected html '{host}'");
+                    // println!("head:\n{}",head.as_node().to_string());
                     html
                 };
                 html_inject(body_str)
@@ -765,11 +769,11 @@ impl HttpHandler for Handler {
             let html = decoding.into_owned();
             if encodings == "" {
                 let res = Response::from_parts(parts, Body::from(html));
-                return encode_response("gzip", res).unwrap();
+                return encode_response("gzip", res).expect("compress failed");
             }
             for code in encodings.split(",") {
                 let body = auto_result!(encode_body(code, Body::from(html.clone())),err=>{
-                    error!("{err}");
+                    error!("compress respond failed {err}");
                     continue
                 });
                 parts
@@ -778,7 +782,7 @@ impl HttpHandler for Handler {
 
                 return Response::from_parts(parts, body);
             }
-            return response_msg(500, "压缩响应内容失败");
+            return response_msg(500, "compress respond failed");
         }
         if ctype.ends_with("application/javascript") {}
         let res = {

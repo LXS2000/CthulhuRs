@@ -11,13 +11,6 @@
           <TextBtn :name="tl('reboot')" size="0.7rem" :color="'#f87373'" style="margin-left: 0.5rem" @click="onRestart"/>
         </div>
       </div>
-      <div class="row-between " style="color: white;align-items: center;margin-top: 0.5rem">
-        <div class="row">{{ tl("integrals") }}：<span style="color: #19e319">{{ info.integrals }}</span></div>
-        <el-button type="primary" size="small"
-                   @click="dialogVisible=true"
-                   style="width: 20%; align-self: center">{{ tl("recharge") }}
-        </el-button>
-      </div>
     </div>
     <div class="col card">
       <div style="color: white;margin-left: 0.1rem">{{ tl("pAddr") }}：</div>
