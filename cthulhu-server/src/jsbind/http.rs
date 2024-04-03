@@ -112,7 +112,8 @@ impl JsUri {
             if !self.path.starts_with("/") {
                 uri.push('/');
             }
-            uri.push_str(&self.path);
+            let encode = urlencoding::encode(&self.path).to_string();
+            uri.push_str(&encode);
             while uri.ends_with("/") {
                 uri.pop();
             }
@@ -153,10 +154,14 @@ impl From<&hyper::Uri> for JsUri {
                         Some(v) => v,
                         None => continue,
                     };
-                    params.insert(key.to_string(), value.to_string());
+                    let k = urlencoding::decode(key).expect(key);
+                    let v = urlencoding::decode(value).expect(value);
+                    params.insert(k.to_string(), v.to_string());
                 }
             }
-            Some(pq.path().to_string())
+            let path = pq.path();
+            let path = urlencoding::decode(path).expect(path);
+            Some(path.to_string())
         } else {
             None
         }
