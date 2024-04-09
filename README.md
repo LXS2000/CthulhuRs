@@ -3,6 +3,9 @@
 * A browser extensions platform  
 * A net packet capture tool
 
+# Demonstration
+![demo](assets/video.gif)
+
 ## Main features of CthulhuRs
 * Inject JavaScript code into the browser environment to control its behavior, such as `modify web fingerprint`,`control web crawler`,`simulate real users` ...
 * Install plugins to control server behavior, such as `monitor`, `modify`, `redirect`,`respond`,`set proxy` and `pretend ja3、h2 fingerprint`
