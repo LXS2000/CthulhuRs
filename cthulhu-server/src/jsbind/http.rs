@@ -154,8 +154,8 @@ impl From<&hyper::Uri> for JsUri {
                         Some(v) => v,
                         None => continue,
                     };
-                    let k = urlencoding::decode(key).expect(key);
-                    let v = urlencoding::decode(value).expect(value);
+                    let k=urlencoding::decode(key).expect(key);
+                    let v=urlencoding::decode(value).expect(value);
                     params.insert(k.to_string(), v.to_string());
                 }
             }
