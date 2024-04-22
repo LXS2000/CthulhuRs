@@ -1,44 +1,27 @@
-﻿use core::{PluginManager, ProxyCfg};
-use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
+﻿use std::{collections::HashMap, fs, net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
-use async_once_cell::OnceCell;
+use async_trait::async_trait;
 
-use clap::{arg, ArgAction};
-use futures::stream::SplitSink;
-use handle::{api::config::set_system_proxy, Handler};
+use hyper::{Body, Uri};
 
-use hyper::{upgrade::Upgraded, Body, Uri};
-
-use hyper_tungstenite::tungstenite::Message;
 use lazy_static::lazy_static;
 use local_ip_address::local_ip;
-use markup5ever::tendril::fmt::Slice;
 
 use moka::future::Cache;
-use net_proxy::{certificate_authority::RcgenAuthority, CustomProxy};
+use net_proxy::{
+    certificate_authority::RcgenAuthority, CustomProxy, HttpHandler, WebSocketHandler,
+};
 use rand::{rngs::StdRng, Rng};
 use reqwest::redirect;
-use time::macros::format_description;
-
-use tokio_tungstenite::WebSocketStream;
-use tracing::Level;
-use tracing_subscriber::{fmt::time::LocalTime, FmtSubscriber};
+use serde::Deserialize;
 
 use rustls_pemfile as pemfile;
-use user_agent_parser::UserAgentParser;
 
-use crate::{
-    core::{AsyncTaskMannager, ClientManager, PluginCtx},
-    handle::api::{config, plugin},
-    net_proxy::AddrListenerServer,
-};
-
+use crate::net_proxy::AddrListenerServer;
 
 mod core;
-mod handle;
 
 mod ja3;
-mod jsbind;
 mod net_proxy;
 mod proxy;
 mod rcgen;
@@ -49,26 +32,9 @@ mod macros;
 type NetClient = reqwest::Client;
 type AppProxy<'ca, P> = CustomProxy<RcgenAuthority, Handler, Handler, P>;
 
-type Sink = SplitSink<WebSocketStream<Upgraded>, Message>;
 // const TIME_FMT: &str = "%Y-%m-%d %H:%M:%S";
 lazy_static! {
-  
-     ///sqlite数据库
-    ///数据库连接池
-    pub static ref DBPOOL: sqlx::SqlitePool  ={
-        let database_url="./cthulhu.db";
-        let pool =
-            sqlx::SqlitePool::connect_lazy(database_url).expect("实例化连接池失败");
-        pool
-    } ;
 
-
-    ///客户端上下文管理器
-    pub static ref CLIENT_MANAGER:ClientManager=ClientManager::default();
-    //插件hash 映射 对应的js上下文
-    pub static ref PLUGIN_MANAGER: PluginManager =PluginManager::default();
-    //异步任务管理器
-    pub static ref ASYNC_TASK_MANNAGER: AsyncTaskMannager =AsyncTaskMannager::new();
 
     ///客户端池
     pub static ref CLITENT_POOL: Cache<ProxyCfg,NetClient> =Cache::builder()
@@ -81,15 +47,39 @@ lazy_static! {
        let client= create_client(ProxyCfg::default());
         client
     };
-    pub static ref UA_PARSER:UserAgentParser= UserAgentParser::from_str(include_str!("../regexes.yaml")).expect("Parser creation failed");
 
     pub static ref IS_SYS_PROXY:std::sync::RwLock<bool>=std::sync::RwLock::new(false);
 
     //CA证书
-    pub static ref AUTH:OnceCell< Arc <RcgenAuthority>>=OnceCell::new();
-    pub static ref PORT:OnceCell<u16>=OnceCell::new();
+    pub static ref AUTH:Arc <RcgenAuthority>=Arc::new(read_ca());
+    pub static ref CONFIG:Config={
+        let bytes = fs::read("./config.json").expect("配置文件读取失败");
+        let cfg = serde_json::from_slice::<Config>(&bytes).expect("配置文件格式不正确");
+        cfg
+    };
 
-    pub static ref DOC_URL:&'static str="https://server.cthulhu.fun";
+
+    pub static ref HOST_CFG:HashMap<String,ProxyCfg>={
+        let mut map=HashMap::new();
+        for Match { host, ja3, h2, proxy } in &CONFIG.matches {
+           let proxy= match proxy {
+                Some(value) => {
+                    if value.is_empty() {
+                        None
+                    }else{
+                        Some(Uri::from_str(value).expect("代理地址格式错误"))
+                    }
+
+                },
+                None => {None},
+            };
+
+            map.insert(host.to_string(), ProxyCfg{ja3:*ja3,h2:*h2,proxy});
+        }
+        map
+    };
+
+
 
 }
 
@@ -127,60 +117,34 @@ async fn shutdown_signal() {
         .await
         .expect("Failed to install CTRL+C signal handler");
 
-    let mut tasks = vec![];
-    {
-        let mut tasks_guard = ASYNC_TASK_MANNAGER.tasks.write().await;
-        while tasks_guard.len() > 0 {
-            let join = tasks_guard.remove(0);
-            tasks.push(join);
-        }
-    }
-    futures::future::join_all(tasks).await;
     println!("exit...");
 }
-
-fn get_cmd() -> clap::Command {
-    clap::Command::new("cthulhu")
-        .about("a high performance packet capture proxy server")
-        .author("li xiu shun 3451743380@qq.com")
-        .arg_required_else_help(true)
-        .allow_external_subcommands(true)
-        .subcommand(
-            clap::Command::new("run").about("run the server").arg(
-                arg!(sys: -s "set server to be system proxy")
-                    .required(false)
-                    .action(ArgAction::SetTrue),
-            ),
-        )
-        .subcommand(
-            clap::Command::new("install")
-                .about("install plugin from current directory")
-                .arg(arg!(<DIR> "target dir for install").required(false)),
-        )
-        .subcommand(
-            clap::Command::new("cagen")
-                .about("generate self signed cert with random privkey")
-                .arg(
-                    arg!(<DIR> "cert file output dir")
-                        .required(false)
-                        .default_missing_value("./ca/")
-                        .default_value("./ca/"),
-                ),
-        )
-        .subcommand(
-            clap::Command::new("config")
-                .about("operate configuration")
-                .subcommand(clap::Command::new("list").about("list the all configuration"))
-                .subcommand(
-                    clap::Command::new("set")
-                        .about("set configuration's value by key")
-                        .arg(arg!(<KEY> "set configuration's value by key"))
-                        .arg(arg!(<VALUE> ... "set configuration's value by key"))
-                        .arg_required_else_help(true),
-                )
-                .arg_required_else_help(true),
-        )
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct ProxyCfg {
+    pub ja3: i32,
+    pub h2: i32,
+    pub proxy: Option<Uri>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct Match {
+    pub host: String,
+    pub ja3: i32,
+    pub h2: i32,
+    pub proxy: Option<String>,
+}
+#[derive(Debug, Deserialize)]
+pub struct Config {
+    pub port: u16,
+    pub matches: Vec<Match>,
+}
+#[derive(Debug, Clone)]
+struct Handler;
+#[async_trait]
+impl HttpHandler for Handler {}
+
+#[async_trait]
+impl WebSocketHandler for Handler {}
 
 fn create_client(key: ProxyCfg) -> NetClient {
     let client_config = ja3::random_ja3(key.ja3 as usize);
@@ -193,14 +157,14 @@ fn create_client(key: ProxyCfg) -> NetClient {
         .redirect(redirect::Policy::limited(100))
         .use_preconfigured_tls(client_config);
     // .danger_accept_invalid_certs(true);
-    let port = PORT.get().unwrap();
+    let port = CONFIG.port;
 
-    if proxy::already_sys_proxy(*port, local_ip().ok()) {
+    if proxy::already_sys_proxy(port, local_ip().ok()) {
         //避免环回代理
         builder = builder.no_proxy(); //禁用自动添加系统代理
     }
     if key.h2 != 0 {
-        let mut random: StdRng = rand::SeedableRng::seed_from_u64(key.h2.abs_diff(0));
+        let mut random: StdRng = rand::SeedableRng::seed_from_u64(key.h2 as u64);
         let base = 1024 * 1024; //1mb
         builder = builder
             .http2_max_frame_size(random.gen_range(16_384..((1 << 24) - 1)) / 1024 * 1024)
@@ -214,110 +178,47 @@ fn create_client(key: ProxyCfg) -> NetClient {
     }
     builder.build().unwrap()
 }
-async fn get_client(addr: SocketAddr, uri: Uri) -> NetClient {
-    // let key = {
-    //     let mut random = rand::thread_rng();
-    //     ProxyData {
-    //         proxy: None,
-    //         ja3: random.gen_range(1..500),
-    //         h2: random.gen_range(1..500),
-    //     }
-    // };
-    // let key = &key;
-    //=======
-    let guard = CLIENT_MANAGER.ctx_map_scope_keys.read().await;
-
-    let scope_key = auto_option!(guard.get(&(addr, uri)), HTTP_CLIENT.clone());
-
-    let keys = CLIENT_MANAGER.proxy_datas.read().await;
-
-    let key = match keys.get(scope_key) {
-        Some(v) => v,
-        None => {
-            return HTTP_CLIENT.clone();
-        }
-    };
-    let clients = &CLITENT_POOL;
-
-    let client = if let Some(client) = clients.get(key).await {
-        client.clone()
-    } else {
-        let client = create_client(key.clone()).into();
-        clients.insert(key.clone(), client).await;
-        let client = clients.get(key).await.unwrap();
-        client.clone()
-    };
-    client
-}
-
-async fn run_server() {
-    let port = PORT
-        .get_or_init(async {
-            let port = config::get_config("port")
-                .await
-                .map(|v| v.as_i64().unwrap_or(3000) as u16)
-                .unwrap_or(3000);
-            port
-        })
-        .await;
-    //初始化ca证书
-    let _ = AUTH
-        .get_or_init(async {
-            let certificate = config::get_config("certificate")
-                .await
-                .expect("读取ca证书路径配置失败!");
-            let certificate = certificate.as_object().expect("ca证书路径配置异常!");
-
-            let cert = certificate
-                .get("cert")
-                .expect("请设置ca证书cert路径!")
-                .as_str()
-                .unwrap();
-            let key = certificate
-                .get("key")
-                .expect("请设置ca证书密钥key路径!")
-                .as_str()
-                .unwrap();
-            println!("CA_KEY: {key}");
-            println!("CA_CERT: {cert}");
-            let key = utils::read_bytes(key).expect("读取密钥文件失败!");
-            let cert = utils::read_bytes(cert).expect("读取证书文件失败!");
-
-            let mut private_key_bytes: &[u8] = key.as_bytes();
-            let mut ca_cert_bytes: &[u8] = cert.as_bytes();
-
-            let private_key = rustls::PrivateKey(
-                pemfile::pkcs8_private_keys(&mut private_key_bytes)
-                    .expect("Failed to parse private key")
-                    .remove(0),
-            );
-
-            let ca_cert = rustls::Certificate(
-                pemfile::certs(&mut ca_cert_bytes)
-                    .expect("Failed to parse CA certificate")
-                    .remove(0),
-            );
-
-            Arc::new(
-                RcgenAuthority::new(private_key.into(), ca_cert, 1_000)
-                    .expect("Failed to create Certificate Authority"),
-            )
-        })
-        .await;
-    {
-        //加载插件
-        let plugins = plugin::get_enabled_plugins().await;
-        for plugin in plugins {
-            let ctx = PluginCtx::new(plugin).await.unwrap();
-            PLUGIN_MANAGER.set_ctx(ctx).await;
+async fn get_client(_addr: SocketAddr, uri: Uri) -> NetClient {
+    let host = uri.host().unwrap();
+    for (host_p, cfg) in HOST_CFG.iter() {
+        if utils::mini_match(host_p, host) {
+            return create_client(cfg.clone());
         }
     }
+    HTTP_CLIENT.clone()
+}
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], *port));
+fn read_ca() -> RcgenAuthority {
+    let key = utils::read_bytes("./ca/ca.key").expect("读取密钥文件失败!");
+    let cert = utils::read_bytes("./ca/ca.cer").expect("读取证书文件失败!");
+
+    let mut private_key_bytes: &[u8] = &key;
+    let mut ca_cert_bytes: &[u8] = &cert;
+
+    let private_key = rustls::PrivateKey(
+        pemfile::pkcs8_private_keys(&mut private_key_bytes)
+            .expect("Failed to parse private key")
+            .remove(0),
+    );
+
+    let ca_cert = rustls::Certificate(
+        pemfile::certs(&mut ca_cert_bytes)
+            .expect("Failed to parse CA certificate")
+            .remove(0),
+    );
+
+    let auth = RcgenAuthority::new(private_key.into(), ca_cert, 1_000)
+        .expect("Failed to create Certificate Authority");
+    auth
+}
+async fn run_server() {
+    //初始化ca证书
+    let port = CONFIG.port;
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
     let rustls = tokio_tungstenite::Connector::Rustls(Arc::new(ja3::random_ja3(0)));
     let proxy = AppProxy::new(
-        AUTH.get().unwrap().clone(),
+        AUTH.clone(),
         AddrListenerServer::Addr(addr),
         Handler,
         Handler,
@@ -333,147 +234,7 @@ async fn run_server() {
     }
 }
 
-async fn list_configs() {
-    let configs = auto_result!(config::get_configs().await,err=>{
-         println!("系统异常:{err}");
-         return ;
-    });
-    println!("CONFIGS:");
-    for config in configs {
-        let key = config.get("key").unwrap().as_str().unwrap_or("");
-        let label = config.get("label").unwrap().as_str().unwrap_or("");
-        let ty = config.get("type").unwrap().as_str().unwrap_or("");
-        match ty {
-            "str" | "num" | "bool" | "list" => {
-                let value = config.get("value").unwrap().to_string();
-                println!("\t{key}: {value}\t---{label}")
-            }
-
-            "obj" => {
-                let temp = vec![];
-                let child = config.get("value").unwrap().as_array().unwrap_or(&temp);
-                for config in child {
-                    let sub_key = config.get("key").unwrap().as_str().unwrap_or("");
-                    let sub_label = config.get("label").unwrap().as_str().unwrap_or("");
-                    let value = config.get("value").unwrap().to_string();
-                    println!("\t{key}.{sub_key}: {value}\t---{label}.{sub_label}")
-                }
-            }
-            _ => {}
-        }
-    }
-}
-async fn set_config(full_key: &str, mut values: Vec<String>) {
-    let (key, sub_key) = full_key.split_once(".").unwrap_or((full_key, ""));
-    let config = auto_option!(config::get_config_by_key(key).await, {
-        println!("invalid key");
-        return;
-    });
-    let mut id = config.id;
-    let mut ty = config.r#type;
-    if !sub_key.is_empty() {
-        let sub_config = auto_option!(
-            config::get_config_by_key_and_parent_id(sub_key, id).await,
-            {
-                println!("invalid key");
-                return;
-            }
-        );
-        ty = sub_config.r#type;
-        id = sub_config.id;
-    }
-    let value = if ty == "list" {
-        values.join("&&")
-    } else {
-        values.remove(0)
-    };
-    auto_result!( config::update_config_by_id(id, &value).await,err=>{
-        println!("update configration faild:{err}");
-        return;
-    });
-    println!("set config by key '{full_key}' success")
-}
 #[tokio::main]
 async fn main() {
-    //初始化环境变量
-    // dotenv::dotenv().ok();
-
-    //初始化命令行工具
-    let cmd = get_cmd();
-
-    let matches = cmd.get_matches();
-    let subcmd = matches.subcommand();
-    match subcmd {
-        Some(("run", subcmd)) => {
-            //注册日志
-            let timer = LocalTime::new(format_description!(
-                "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second]"
-            ));
-            let subscriber = FmtSubscriber::builder()
-                .with_max_level(Level::ERROR) // 设置最大日志级别为INFO
-                .with_timer(timer)
-                .pretty()
-                .with_ansi(false)
-                .finish();
-
-            tracing::subscriber::set_global_default(subscriber)
-                .expect("setting default subscriber failed");
-
-            //注册系统代理
-            if subcmd.get_flag("sys") {
-                set_system_proxy(true).await.unwrap();
-                println!("设置系统代理成功");
-            }
-            run_server().await
-        }
-        Some(("cagen", subcmd)) => {
-            let dir = subcmd.get_one::<String>("DIR").unwrap();
-            rcgen::ca_gen(dir);
-        }
-        Some(("install", subcmd)) => {
-            let dir = {
-                let current_dir = std::env::current_dir().unwrap();
-                let dir = subcmd
-                    .get_one::<String>("DIR")
-                    // .map(|v| std::path::Path::new(v))
-                    .map(|dir| {
-                        if dir.starts_with(".") {
-                            return relative_path::RelativePath::new(dir)
-                                .to_logical_path(&current_dir);
-                        }
-                        relative_path::RelativePath::new(dir).to_path("")
-                    })
-                    .unwrap_or(current_dir);
-                dir
-            };
-            plugin::install(dir.to_str().unwrap()).await;
-        }
-        Some(("config", subcmd)) => match subcmd.subcommand() {
-            Some(("list", _)) => list_configs().await,
-            Some(("set", subcmd)) => {
-                let key = auto_option!(subcmd.get_one::<String>("KEY"),v=>v.is_empty(),{
-                    println!("'key' is necessary");
-                    return;
-                });
-                let value = auto_option!(subcmd.get_many::<String>("VALUE"), {
-                    println!("'value' is necessary");
-                    return;
-                });
-                let values = value.map(|v| v.clone()).collect::<Vec<String>>();
-                if values.is_empty() {
-                    println!("'value' is necessary");
-                    return;
-                }
-                set_config(key, values).await
-            }
-            Some((&_, _)) => println!("unknown option"),
-            None => {
-                println!("unknown option")
-            }
-        },
-        Some((c, _)) => println!("unknown option {c}"),
-        None => {
-            println!("unknown option")
-        }
-    }
+    run_server().await
 }
