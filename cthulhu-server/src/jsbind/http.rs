@@ -89,6 +89,7 @@ impl JsUri {
     #[qjs(skip)]
     pub fn assemble(&self) -> std::result::Result<String, &'static str> {
         let mut uri = String::new();
+        
         if self.scheme.is_empty() {
             return Err("Invalid scheme");
         }
@@ -798,9 +799,13 @@ impl Convert<hyper::Request<Body>> for JsRequest {
             };
             (headers, body)
         };
+        let assemble = parts.1.assemble();
+        if assemble.is_err() {
+            panic!("Invalid uri:{:?}",&parts.1)
+        }
         let mut req = hyper::Request::builder()
             .method(parts.0)
-            .uri(parts.1.assemble().unwrap())
+            .uri(assemble.unwrap())
             .version(parts.2)
             .body(body)
             .unwrap();

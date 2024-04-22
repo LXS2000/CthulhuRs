@@ -33,7 +33,6 @@ use crate::{
     net_proxy::AddrListenerServer,
 };
 
-
 mod core;
 mod handle;
 
@@ -52,7 +51,7 @@ type AppProxy<'ca, P> = CustomProxy<RcgenAuthority, Handler, Handler, P>;
 type Sink = SplitSink<WebSocketStream<Upgraded>, Message>;
 // const TIME_FMT: &str = "%Y-%m-%d %H:%M:%S";
 lazy_static! {
-  
+
      ///sqlite数据库
     ///数据库连接池
     pub static ref DBPOOL: sqlx::SqlitePool  ={
@@ -191,8 +190,8 @@ fn create_client(key: ProxyCfg) -> NetClient {
         .http2_keep_alive_timeout(Duration::from_secs(60))
         .pool_max_idle_per_host(3 * 60 * 1000)
         .redirect(redirect::Policy::limited(100))
-        .use_preconfigured_tls(client_config);
-    // .danger_accept_invalid_certs(true);
+        .use_preconfigured_tls(client_config)
+        .danger_accept_invalid_certs(true);
     let port = PORT.get().unwrap();
 
     if proxy::already_sys_proxy(*port, local_ip().ok()) {
