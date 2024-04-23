@@ -8,12 +8,14 @@ use hyper::http::uri::Authority;
 use moka::future::Cache;
 use rand::{thread_rng, Rng};
 use rcgen::{DistinguishedName, DnType, KeyPair, RcgenError, SanType};
+use time::OffsetDateTime;
+
 use std::{
     net::{Ipv4Addr, Ipv6Addr},
     str::FromStr,
-    sync::Arc,
+    sync::Arc, time::Duration,
 };
-use time::{Duration, OffsetDateTime};
+
 use tokio_rustls::rustls::{self, ServerConfig};
 use tracing::debug;
 
@@ -79,10 +81,10 @@ impl RcgenAuthority {
     fn gen_cert(&self, authority: &Authority) -> rustls::Certificate {
         let mut params = rcgen::CertificateParams::default();
         params.serial_number = Some(thread_rng().gen::<u64>().into());
-
-        let not_before = OffsetDateTime::now_utc() - Duration::seconds(NOT_BEFORE_OFFSET);
+        
+        let not_before = OffsetDateTime::now_utc() - Duration::from_secs(NOT_BEFORE_OFFSET as u64);
         params.not_before = not_before;
-        params.not_after = not_before + Duration::seconds(TTL_SECS);
+        params.not_after = not_before + Duration::from_secs(TTL_SECS  as u64);
 
         let mut distinguished_name = DistinguishedName::new();
         distinguished_name.push(DnType::CommonName, authority.host());
