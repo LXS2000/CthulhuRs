@@ -4,7 +4,7 @@ use crate::{
         certificate_authority::CertificateAuthority, rewind::Rewind, Answer, HttpContext,
         HttpHandler, WebSocketContext, WebSocketHandler,
     },
-    reqwest_request_from_hyper, reqwest_response_to_hyper,
+HTTP_CLIENT,
 };
 
 use futures::{Sink, Stream, StreamExt};
@@ -79,25 +79,22 @@ async fn connect_to_dns(
     let stream = connector.connect(server_name, stream).await?;
     Ok(stream)
 }
-pub(crate) struct NetProxy<CA, H, W, P> {
+pub(crate) struct NetProxy<CA, H, W> {
     pub ca: Arc<CA>,
-    pub client_provider: P,
     pub http_handler: H,
     pub websocket_handler: W,
     pub websocket_connector: Option<Connector>,
     pub client_addr: SocketAddr,
 }
 
-impl<CA, H, W, P> Clone for NetProxy<CA, H, W, P>
+impl<CA, H, W> Clone for NetProxy<CA, H, W>
 where
     H: Clone,
     W: Clone,
-    P: Clone,
 {
     fn clone(&self) -> Self {
         NetProxy {
             ca: Arc::clone(&self.ca),
-            client_provider: self.client_provider.clone(),
             http_handler: self.http_handler.clone(),
             websocket_handler: self.websocket_handler.clone(),
             websocket_connector: self.websocket_connector.clone(),
@@ -106,13 +103,11 @@ where
     }
 }
 
-impl<CA, H, W, P, Fut> NetProxy<CA, H, W, P>
+impl<CA, H, W> NetProxy<CA, H, W>
 where
     CA: CertificateAuthority,
     H: HttpHandler,
     W: WebSocketHandler,
-    Fut: Future<Output = Client> + Send + Sync + 'static,
-    P: Fn(SocketAddr, Uri) -> Fut + Send + 'static + Clone + Sync,
 {
     fn context(&self, req: &Request<Body>) -> HttpContext {
         HttpContext {
@@ -152,17 +147,14 @@ where
             // let version = req.version();
             // *req.version_mut()=Version::HTTP_11;
             // let method = req.method().to_string();
-            let client_provider = self.client_provider;
-            let mut client = client_provider(self.client_addr, req.uri().clone()).await;
-            let req = reqwest_request_from_hyper(req).await;
-            let res = client
+
+            let res = HTTP_CLIENT.clone()
                 .call(req)
                 .instrument(info_span!("proxy_request"))
                 .await;
 
             match res {
                 Ok(res) => {
-                    let res = reqwest_response_to_hyper(res).await.unwrap();
                     Ok(self
                         .http_handler
                         .handle_response(&ctx, res)

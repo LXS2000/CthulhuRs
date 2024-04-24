@@ -154,21 +154,19 @@ pub enum AddrListenerServer {
     Server(Box<hyper::server::Builder<AddrIncoming>>),
 }
 
-pub struct CustomProxy<CA, H, W, P> {
+pub struct CustomProxy<CA, H, W> {
     ca: Arc<CA>,
     als: AddrListenerServer,
     http_handler: H,
     websocket_handler: W,
     websocket_connector: Option<Connector>,
-    client_provider: P,
 }
-impl<CA, H, W, P, Fu> CustomProxy<CA, H, W, P>
+impl<CA, H, W> CustomProxy<CA, H, W>
 where
     CA: CertificateAuthority,
     H: HttpHandler,
     W: WebSocketHandler,
-    Fu: Future<Output = Client> + Send + Sync + 'static,
-    P: Fn(SocketAddr, Uri) -> Fu + Send + 'static + Clone + Sync,
+
 {
     pub fn new(
         ca: Arc<CA>,
@@ -176,7 +174,6 @@ where
         http_handler: H,
         websocket_handler: W,
         websocket_connector: Option<Connector>,
-        client_provider: P,
     ) -> Self {
         Self {
             ca,
@@ -184,7 +181,6 @@ where
             http_handler,
             websocket_handler,
             websocket_connector,
-            client_provider,
         }
     }
 
@@ -196,20 +192,17 @@ where
             let websocket_connector = self.websocket_connector.clone();
 
             let client_addr = conn.remote_addr();
-            let client_provider = self.client_provider.clone();
+
             async move {
                 let service = service_fn(move |req| {
                     let net_proxy = NetProxy {
                         ca: Arc::clone(&ca),
-                        client_provider: client_provider.clone(),
                         http_handler: http_handler.clone(),
                         websocket_handler: websocket_handler.clone(),
                         websocket_connector: websocket_connector.clone(),
                         client_addr: client_addr.clone(),
                     };
-                    async {
-                        net_proxy.proxy(req).await
-                    }
+                    async { net_proxy.proxy(req).await }
                 });
                 Ok::<_, Infallible>(service)
             }

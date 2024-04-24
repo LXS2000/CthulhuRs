@@ -15,7 +15,7 @@ tokio-rustls = { version = "0.24.1", features = ["default"] }
 tokio-tungstenite = { version = "0.20.0", features = ["default","native-tls","__rustls-tls"] }
 
 
-hyper = { version = "0.14.28", features = ["full"] }
+hyper = { version = "0.14.28", features = ["full","tcp"] }
 hyper-rustls = { version = "0.24.2", features = [
     "http1",
     "http2",
