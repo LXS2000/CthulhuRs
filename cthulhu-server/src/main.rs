@@ -19,8 +19,6 @@ use rustls_pemfile as pemfile;
 
 use crate::net_proxy::AddrListenerServer;
 
-mod core;
-
 mod ja3;
 mod net_proxy;
 mod proxy;
