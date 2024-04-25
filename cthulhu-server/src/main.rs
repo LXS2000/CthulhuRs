@@ -1,12 +1,13 @@
-﻿use std::{fs, net::SocketAddr, sync::Arc};
+﻿use std::{fs, net::SocketAddr, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
 
 use hyper::{
     client::HttpConnector, header::HeaderValue, service::Service, Body, Method, Request, Response,
-    Uri,
+    Uri, Version,
 };
 
+use hyper_rustls::HttpsConnector;
 use lazy_static::lazy_static;
 use local_ip_address::local_ip;
 
@@ -19,6 +20,10 @@ use serde::Deserialize;
 
 use rustls_pemfile as pemfile;
 
+use time::macros::format_description;
+use tracing::Level;
+use tracing_subscriber::{fmt::time::LocalTime, FmtSubscriber};
+
 use crate::net_proxy::AddrListenerServer;
 
 mod ja3;
@@ -29,7 +34,8 @@ mod utils;
 
 mod macros;
 
-type NetClient = hyper::Client<HttpConnector, Body>;
+// type NetClient = hyper::Client<HttpsConnector<HttpConnector>, Body>;
+type NetClient = reqwest::Client;
 type AppProxy<'ca> = CustomProxy<RcgenAuthority, Handler, Handler>;
 
 // const TIME_FMT: &str = "%Y-%m-%d %H:%M:%S";
@@ -38,8 +44,24 @@ lazy_static! {
 
 
     ///sever http客户端
-    pub static ref HTTP_CLIENT: NetClient = Default::default();
+    pub static ref HTTP_CLIENT: NetClient = {
+       let c= reqwest::ClientBuilder::new()
+      .tls_built_in_root_certs(true)
+      
+    //   .cookie_store(false)
+    //   .referer(false)
+      .no_brotli().no_deflate().no_gzip()
+      .danger_accept_invalid_certs(true)
 
+        .use_rustls_tls().build().unwrap();
+    //    let conn=HttpConnector::new();
+    //    let conn= hyper_rustls::HttpsConnectorBuilder::new()
+    //     .with_native_roots()
+    //     .https_or_http().enable_all_versions()
+    //     .wrap_connector(conn);
+    //    hyper::Client::builder().build(conn)
+    c
+    };
     pub static ref IS_SYS_PROXY:std::sync::RwLock<bool>=std::sync::RwLock::new(false);
 
     //CA证书
@@ -51,7 +73,37 @@ lazy_static! {
     };
 
 }
+pub async fn reqwest_response_to_hyper(
+    res: reqwest::Response,
+) -> Result<hyper::Response<Body>, Box<dyn std::error::Error>> {
+    let status = res.status();
+    let version = res.version();
+    let headers = res.headers();
+    // println!("{:?}",headers);
+    let headers = headers.clone();
+    
+    let bytes = res.bytes().await?;
+    let mut response = hyper::Response::builder()
+        .version(version)
+        .status(status)
+        .body(Body::from(bytes))?;
+    *response.headers_mut() = headers;
+    Ok(response)
+}
 
+pub async fn reqwest_request_from_hyper(req: hyper::Request<Body>) -> reqwest::Request {
+    let (parts, body) = req.into_parts();
+    let mut request = reqwest::Request::new(
+        parts.method,
+        reqwest::Url::from_str(&parts.uri.to_string()).unwrap(),
+    );
+
+    *request.headers_mut() = parts.headers;
+    *request.version_mut() = parts.version;
+    let bytes = hyper::body::to_bytes(body).await.unwrap();
+    *request.body_mut() = Some(reqwest::Body::from(bytes));
+    request
+}
 async fn shutdown_signal() {
     tokio::signal::ctrl_c()
         .await
@@ -81,6 +133,9 @@ impl HttpHandler for Handler {
         _ctx: &HttpContext,
         mut req: Request<Body>,
     ) -> Answer<Request<Body>, Response<Body>> {
+        if req.method() == Method::CONNECT {
+            return Answer::Release(req);
+        }
         let uri = req.uri().clone();
         println!("req:{},{}", req.method(), uri.to_string());
         let headers = req.headers_mut();
@@ -104,19 +159,19 @@ impl HttpHandler for Handler {
                 break;
             }
         }
-        if req.method() == Method::CONNECT {
-            *req.uri_mut() = Uri::from_static("127.0.0.1:520");
-        } else {
-            *req.uri_mut() = Uri::from_static("https://127.0.0.1:520/");
-        }
-
-        let call = HTTP_CLIENT.clone().call(req).await;
+        *req.uri_mut() = Uri::from_static("https://127.0.0.1:520/");
+        let req = reqwest_request_from_hyper(req).await;
+        let call = HTTP_CLIENT.clone().execute(req).await;
         match call {
-            Ok(res) => Answer::Respond(res),
+            Ok(res) => {
+                let  res = reqwest_response_to_hyper(res).await.unwrap();
+                Answer::Respond(res)
+            }
             Err(e) => {
-                eprintln!("{:?}", &e);
+                tracing::error!("{:?} uri:{}", &e, &uri);
                 let res = Response::builder()
                     .status(500)
+    
                     .body(Body::from(e.to_string()))
                     .unwrap();
                 Answer::Respond(res)
@@ -175,5 +230,17 @@ async fn run_server() {
 
 #[tokio::main]
 async fn main() {
+    //注册日志
+    let timer = LocalTime::new(format_description!(
+        "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second]"
+    ));
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::ERROR) // 设置最大日志级别为INFO
+        .with_timer(timer)
+        .pretty()
+        .with_ansi(false)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     run_server().await
 }
