@@ -1,8 +1,10 @@
 use crate::{
-    auto_result, ja3, net_proxy::{
+    auto_result, ja3,
+    net_proxy::{
         certificate_authority::CertificateAuthority, rewind::Rewind, Answer, HttpContext,
         HttpHandler, WebSocketContext, WebSocketHandler,
-    }, reqwest_request_from_hyper, reqwest_response_to_hyper, HTTP_CLIENT
+    },
+    reqwest_request_from_hyper, reqwest_response_to_hyper, HTTP_CLIENT,
 };
 
 use futures::{Sink, Stream, StreamExt};
@@ -145,7 +147,7 @@ where
             // let version = req.version();
             // *req.version_mut()=Version::HTTP_11;
             // let method = req.method().to_string();
-            let req=reqwest_request_from_hyper(req).await;
+            let req = reqwest_request_from_hyper(req);
             let res = HTTP_CLIENT
                 .clone()
                 .call(req)
@@ -155,7 +157,7 @@ where
             match res {
                 Ok(res) => Ok(self
                     .http_handler
-                    .handle_response(&ctx, reqwest_response_to_hyper(res).await.unwrap())
+                    .handle_response(&ctx, reqwest_response_to_hyper(res).unwrap())
                     .instrument(info_span!("handle_response"))
                     .await),
                 Err(err) => {
@@ -209,17 +211,58 @@ where
 
                 return;
             }
-
+            let server_stream = {
+                if authority.host().ends_with("cthulhu.server") {
+                    None
+                } else {
+                    let random_ja3 = ja3::random_ja3(0);
+                    let stream = match connect_to_dns(&authority, Arc::new(random_ja3)).await {
+                        Ok(v) => v,
+                        Err(e) => {
+                            error!("Failed to connect to dns {}: {}", authority.host(), e);
+                            return;
+                        }
+                    };
+                    Some(stream)
+                }
+            };
             if buffer[..2] == *b"\x16\x03" {
                 let server_config = {
-                    let alpn = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+                    match &server_stream {
+                        Some(stream) => {
+                            let alpn = {
+                                let (_server, client) = stream.get_ref();
+                                let alpn = match client.alpn_protocol() {
+                                    Some(v) => v.to_vec(),
+                                    None => {
+                                        warn!(
+                                            "No protocols were offered or accepted by the peer {}",
+                                            authority
+                                        );
+                                        b"http/1.1".to_vec()
+                                    }
+                                };
+                                alpn
+                            };
 
-                    let server_config = self
-                        .ca
-                        .gen_server_config(&authority, alpn)
-                        .instrument(info_span!("gen_server_config"))
-                        .await;
-                    server_config
+                            let server_config = self
+                                .ca
+                                .gen_server_config(&authority, vec![alpn])
+                                .instrument(info_span!("gen_server_config"))
+                                .await;
+                            server_config
+                        }
+                        None => {
+                            let alpn = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+                            let server_config = self
+                                .ca
+                                .gen_server_config(&authority, alpn)
+                                .instrument(info_span!("gen_server_config"))
+                                .await;
+                            server_config
+                        }
+                    }
                 };
 
                 let stream = match TlsAcceptor::from(server_config).accept(upgraded).await {
@@ -243,12 +286,12 @@ where
                 &buffer[..bytes_read]
             );
 
-            // if let Some(mut stream) = server_stream {
-            //     // let (server,_) = stream.get_mut();
-            //     if let Err(e) = tokio::io::copy_bidirectional(&mut upgraded, &mut stream).await {
-            //         error!("Failed to tunnel to {}: {}", authority, e);
-            //     }
-            // }
+            if let Some(mut stream) = server_stream {
+                // let (server,_) = stream.get_mut();
+                if let Err(e) = tokio::io::copy_bidirectional(&mut upgraded, &mut stream).await {
+                    error!("Failed to tunnel to {}: {}", authority, e);
+                }
+            }
         };
 
         spawn_with_trace(fut, span);

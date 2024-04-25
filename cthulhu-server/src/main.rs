@@ -47,7 +47,7 @@ lazy_static! {
     pub static ref HTTP_CLIENT: NetClient = {
        let c= reqwest::ClientBuilder::new()
       .tls_built_in_root_certs(true)
-      
+
     //   .cookie_store(false)
     //   .referer(false)
       .no_brotli().no_deflate().no_gzip()
@@ -73,7 +73,7 @@ lazy_static! {
     };
 
 }
-pub async fn reqwest_response_to_hyper(
+pub fn reqwest_response_to_hyper(
     res: reqwest::Response,
 ) -> Result<hyper::Response<Body>, Box<dyn std::error::Error>> {
     let status = res.status();
@@ -81,17 +81,16 @@ pub async fn reqwest_response_to_hyper(
     let headers = res.headers();
     // println!("{:?}",headers);
     let headers = headers.clone();
-    
-    let bytes = res.bytes().await?;
+
     let mut response = hyper::Response::builder()
         .version(version)
         .status(status)
-        .body(Body::from(bytes))?;
+        .body(Body::wrap_stream(res.bytes_stream()))?;
     *response.headers_mut() = headers;
     Ok(response)
 }
 
-pub async fn reqwest_request_from_hyper(req: hyper::Request<Body>) -> reqwest::Request {
+pub fn reqwest_request_from_hyper(req: hyper::Request<Body>) -> reqwest::Request {
     let (parts, body) = req.into_parts();
     let mut request = reqwest::Request::new(
         parts.method,
@@ -100,8 +99,8 @@ pub async fn reqwest_request_from_hyper(req: hyper::Request<Body>) -> reqwest::R
 
     *request.headers_mut() = parts.headers;
     *request.version_mut() = parts.version;
-    let bytes = hyper::body::to_bytes(body).await.unwrap();
-    *request.body_mut() = Some(reqwest::Body::from(bytes));
+
+    *request.body_mut() = Some(reqwest::Body::from(body));
     request
 }
 async fn shutdown_signal() {
@@ -137,10 +136,13 @@ impl HttpHandler for Handler {
             return Answer::Release(req);
         }
         let uri = req.uri().clone();
-        println!("req:{},{}", req.method(), uri.to_string());
+        let version = req.version();
+        println!("req:{},{:?},{}", req.method(),&version, uri.to_string());
+        
         let headers = req.headers_mut();
 
         headers.append("mitm-uri", HeaderValue::from_str(&uri.to_string()).unwrap());
+        headers.append("mitm-version", HeaderValue::from_str(&format!("{:?}",version)).unwrap());
         let host_ = uri.host().unwrap();
         for Match {
             host,
@@ -160,18 +162,17 @@ impl HttpHandler for Handler {
             }
         }
         *req.uri_mut() = Uri::from_static("https://127.0.0.1:520/");
-        let req = reqwest_request_from_hyper(req).await;
+        let req = reqwest_request_from_hyper(req);
         let call = HTTP_CLIENT.clone().execute(req).await;
         match call {
             Ok(res) => {
-                let  res = reqwest_response_to_hyper(res).await.unwrap();
+                let res = reqwest_response_to_hyper(res).unwrap();
                 Answer::Respond(res)
             }
             Err(e) => {
                 tracing::error!("{:?} uri:{}", &e, &uri);
                 let res = Response::builder()
                     .status(500)
-    
                     .body(Body::from(e.to_string()))
                     .unwrap();
                 Answer::Respond(res)
