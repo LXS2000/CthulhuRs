@@ -9,8 +9,8 @@
             allow="clipboard-write"
             frameborder="0"
             :src="URL"/>
-    <More @mousedown="mousedown"
-          @touchstart="mousedown"
+    <More @mousedown.stop="mousedown"
+          @touchstart.stop="mousedown"
           @mouseup="mouseup"
           @touchend="mouseup"
           id="cthulhuMore"/>
@@ -191,9 +191,6 @@ const onAttach = (e) => {
 
 
 const mouseup = (e) => {
-  e.stopPropagation();
-  e.preventDefault();
-
   ///鼠标按下到抬起小于500毫秒视为点击 则展开
   if (downTime.value && new Date().getTime() - downTime.value < 500) {
     if (!isExpand.value) {
