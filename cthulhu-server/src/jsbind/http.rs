@@ -89,7 +89,7 @@ impl JsUri {
     #[qjs(skip)]
     pub fn assemble(&self) -> std::result::Result<String, &'static str> {
         let mut uri = String::new();
-        
+
         if self.scheme.is_empty() {
             return Err("Invalid scheme");
         }
@@ -121,16 +121,7 @@ impl JsUri {
         }
 
         if !self.params.is_empty() {
-            let query = self
-                .params
-                .iter()
-                .map(|(k, v)| {
-                    let k = urlencoding::encode(k);
-                    let v = urlencoding::encode(v);
-                    format!("{k}={v}")
-                })
-                .collect::<Vec<String>>()
-                .join("&");
+            let query = serde_urlencoded::to_string(&self.params).expect("params encode failed");
             uri.push('?');
             uri.push_str(&query);
         }
@@ -150,15 +141,19 @@ impl From<&hyper::Uri> for JsUri {
         let mut params = HashMap::new();
         let path = if let Some(pq) = uri.path_and_query() {
             if let Some(query) = pq.query() {
-                for item in query.split("&") {
-                    let (key, value) = match item.split_once("=") {
-                        Some(v) => v,
-                        None => continue,
-                    };
-                    let k=urlencoding::decode(key).expect(key);
-                    let v=urlencoding::decode(value).expect(value);
-                    params.insert(k.to_string(), v.to_string());
-                }
+                let hash_map =
+                    serde_urlencoded::from_str::<HashMap<String, String>>(query).expect(query);
+                params.extend(hash_map)
+                // for item in query.split("&") {
+                //     let (key, value) = match item.split_once("=") {
+                //         Some(v) => v,
+                //         None => continue,
+                //     };
+
+                //     let k=urlencoding::decode(key).expect(key);
+                //     let v=urlencoding::decode(value).expect(value);
+                //     params.insert(k.to_string(), v.to_string());
+                // }
             }
             let path = pq.path();
             Some(path.to_string())
@@ -801,7 +796,7 @@ impl Convert<hyper::Request<Body>> for JsRequest {
         };
         let assemble = parts.1.assemble();
         if assemble.is_err() {
-            panic!("Invalid uri:{:?}",&parts.1)
+            panic!("Invalid uri:{:?}", &parts.1)
         }
         let mut req = hyper::Request::builder()
             .method(parts.0)

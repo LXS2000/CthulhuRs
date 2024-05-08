@@ -217,7 +217,7 @@
             return Reflect.apply(target, self, args);
         }, { enableLog: false, nullSkip: false });
     }
-    if(ServiceWorkerContainer){
+    if(self.ServiceWorkerContainer){
         proxyFunc(ServiceWorkerContainer.prototype, "register", (target, self, args) => {
             let urlArg = args[0];
             let url = new URL(urlArg, location.href);

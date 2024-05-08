@@ -1,6 +1,7 @@
 use base64::Engine;
 use rquickjs::{class::Trace, Class, Ctx};
 
+
 use crate::utils as rutils;
 
 use super::{throw_js_err, to_js_err};
@@ -32,6 +33,7 @@ impl StrUtils {
     }
     #[qjs(static)]
     pub fn url_encode(s: String) -> String {
+     
         urlencoding::encode(&s).to_string()
     }
     #[qjs(static)]

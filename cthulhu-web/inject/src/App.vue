@@ -275,8 +275,8 @@ function onMove(e) {
   cthulhuWrap.style.top = y + 'px';
 }
 
-document.onmousemove = onMove
-document.ontouchmove = onMove
+document.addEventListener("mousemove",onMove)
+document.addEventListener("touchmove",onMove)
 
 
 //初始化
