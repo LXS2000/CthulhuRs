@@ -211,8 +211,9 @@ const mouseup = (e) => {
   cthulhuWrap.classList.remove("cthulhuFocus")
   onAttach()
 }
-window.onmouseup = mouseup
-window.ontouchend = mouseup
+
+window.addEventListener("mouseup",mouseup)
+window.addEventListener("touchend",mouseup)
 const mouseleave = (e) => {
   let time = downTime.value
   if (time !== 0) {
@@ -275,8 +276,8 @@ function onMove(e) {
   cthulhuWrap.style.top = y + 'px';
 }
 
-document.addEventListener("mousemove",onMove)
-document.addEventListener("touchmove",onMove)
+window.addEventListener("mousemove",onMove)
+window.addEventListener("touchmove",onMove)
 
 
 //初始化
