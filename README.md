@@ -14,5 +14,5 @@
 * For extensions, compared to the `google manifest v3` protocol, the restrictions are more relaxed and it can provide more functions
 
 ## Document for use
-* [English](https://server.cthulhu.fun/en/)
-* [中文](https://server.cthulhu.fun/zh/)
+* [English](https://lxs2000.github.io/cthulhurs-doc/dist/en/)
+* [中文](https://lxs2000.github.io/cthulhurs-doc/dist/zh/)
