@@ -20,7 +20,7 @@ use std::{
     str::FromStr,
     sync::{Mutex, RwLock},
 };
-
+use std::iter::Map;
 use rquickjs::{
     class::Trace,
     function::{Async, Func},
@@ -72,7 +72,7 @@ pub struct JsUri {
     #[qjs(get, set, enumerable, configurable)]
     pub path: String,
     #[qjs(get, set, enumerable, configurable)]
-    pub params: std::collections::HashMap<String, String>,
+    pub params: HashMap<String,Vec<String>>,
 }
 
 #[rquickjs::methods]
@@ -142,7 +142,7 @@ impl From<&hyper::Uri> for JsUri {
         let path = if let Some(pq) = uri.path_and_query() {
             if let Some(query) = pq.query() {
                 let hash_map =
-                    serde_urlencoded::from_str::<HashMap<String, String>>(query).expect(query);
+                    serde_urlencoded::from_str::<HashMap<String, Vec<String>>>(query).expect(query);
                 params.extend(hash_map)
                 // for item in query.split("&") {
                 //     let (key, value) = match item.split_once("=") {
@@ -160,7 +160,7 @@ impl From<&hyper::Uri> for JsUri {
         } else {
             None
         }
-        .unwrap_or_default();
+            .unwrap_or_default();
         let scheme = uri.scheme_str().map(|v| v.to_string()).unwrap_or_default();
         let port = uri.port_u16().unwrap_or(0);
         Self {
@@ -689,7 +689,7 @@ impl JsHttpAction {
             HttpAction::Respond(_) => "respond",
             HttpAction::Release(_) => "release",
         }
-        .into()
+            .into()
     }
     #[qjs(rename = "toString")]
     pub fn to_string(&self) -> String {

@@ -172,11 +172,11 @@ impl PluginManager {
     }
 }
 
-pub struct AsyncTaskMannager {
+pub struct AsyncTaskManager {
     pub tasks: Arc<RwLock<Vec<tokio::task::JoinHandle<()>>>>,
     _interval_task: tokio::task::JoinHandle<()>,
 }
-impl AsyncTaskMannager {
+impl AsyncTaskManager {
     pub fn new() -> Self {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         let tasks = Arc::new(RwLock::new(vec![]));

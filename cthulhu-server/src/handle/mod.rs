@@ -337,7 +337,7 @@ async fn handle_worker(
         );
         let guard = CLIENT_MANAGER.scope_keys.read().await;
         scope_key =
-            auto_option!(guard.get(&scope_id), response_msg(500, "Invalid scope id")).clone();
+            auto_option!(guard.get(&scope_id[0]), response_msg(500, "Invalid scope id")).clone();
         *req.uri_mut() = hyper::Uri::from_str(&uri_parser.assemble().unwrap()).unwrap();
     }
     let path = ctx.uri.path();

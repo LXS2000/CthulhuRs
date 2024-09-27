@@ -28,10 +28,11 @@ use rustls_pemfile as pemfile;
 use user_agent_parser::UserAgentParser;
 
 use crate::{
-    core::{AsyncTaskMannager, ClientManager, PluginCtx},
+    core::{AsyncTaskManager, ClientManager, PluginCtx},
     handle::api::{config, plugin},
     net_proxy::AddrListenerServer,
 };
+
 
 mod core;
 mod handle;
@@ -67,7 +68,7 @@ lazy_static! {
     //插件hash 映射 对应的js上下文
     pub static ref PLUGIN_MANAGER: PluginManager =PluginManager::default();
     //异步任务管理器
-    pub static ref ASYNC_TASK_MANNAGER: AsyncTaskMannager =AsyncTaskMannager::new();
+    pub static ref ASYNC_TASK_MANNAGER: AsyncTaskManager =AsyncTaskManager::new();
 
     ///客户端池
     pub static ref CLITENT_POOL: Cache<ProxyCfg,NetClient> =Cache::builder()
