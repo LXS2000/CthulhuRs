@@ -253,7 +253,7 @@ fn config_to_json_value(
             }
             serde_json::Value::Array(list)
         }
-        "str" => serde_json::Value::String(value),
+        "str" => serde_json::from_str(&value).expect("字符串格式异常"),
         "list" => value.split("&&").filter(|v| !v.is_empty()).collect::<Vec<&str>>().into(),
         "num" => serde_json::Value::Number(Number::from_str(&value).unwrap()),
         "bool" => serde_json::Value::Bool(bool::from_str(&value).unwrap_or(false)),

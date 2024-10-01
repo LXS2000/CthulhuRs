@@ -89,7 +89,7 @@ lazy_static! {
     pub static ref AUTH:OnceCell< Arc <RcgenAuthority>>=OnceCell::new();
     pub static ref PORT:OnceCell<u16>=OnceCell::new();
 
-    pub static ref DOC_URL:&'static str="https://server.cthulhu.fun";
+    pub static ref DOC_URL:&'static str="https://lxs2000.github.io/cthulhurs-doc/dist/";
 
 }
 
