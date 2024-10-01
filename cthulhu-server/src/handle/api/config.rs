@@ -142,7 +142,7 @@ pub async fn update_config_by_id(id: i64, val: &str) -> Result<(), String> {
         "num" => {
             if Number::from_str(val).is_err() {
                 return Err(format!(
-                    "值:{}无法转换位配置id:{}的指定类型:{}",
+                    "值:{}无法转换为配置id:{}的指定类型:{}",
                     val, id, tag
                 ));
             }
@@ -150,7 +150,7 @@ pub async fn update_config_by_id(id: i64, val: &str) -> Result<(), String> {
         "bool" => {
             if bool::from_str(val).is_err() {
                 return Err(format!(
-                    "值:{}无法转换位配置id:{}的指定类型:{}",
+                    "值:{}无法转换为配置id:{}的指定类型:{}",
                     val, id, tag
                 ));
             }
