@@ -203,7 +203,7 @@ impl JsHeaders {
     pub fn new() -> Self {
         Self {
             is_mut: true,
-            inner: Arc::new(std::sync::RwLock::new(HeaderMap::new())),
+            inner: Arc::new(RwLock::new(HeaderMap::new())),
         }
     }
     #[qjs(rename = "get")]
