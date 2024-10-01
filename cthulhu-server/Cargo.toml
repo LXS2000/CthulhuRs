@@ -47,7 +47,7 @@ sqlx = { version = "0.7", features = [
     "chrono",
 ] }
 
-
+udp-stream = "0.0.11"
 content-security-policy = { version = "0.5.1", path = "./content-security-policy" }
 html5ever = "0.23.0"
 kuchiki = "0.7.3"
@@ -104,6 +104,7 @@ tracing-subscriber = { version = "0.3.18", features = ["local-time"] }
 
 # dotenv = "0.15.0"
 clap = "4.4.11"
+webpki-roots = "0.25.4"
 
 
 [target.'cfg(windows)'.dependencies]

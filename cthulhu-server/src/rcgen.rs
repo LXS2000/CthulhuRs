@@ -55,7 +55,7 @@ pub fn generate_self_signed_cert_with_privkey(
 ///自签名使用CA证书给其他域名生成证书
 pub fn signed_cert_with_ca(
     root_cert: &Certificate,
-    domin: &str,
+    domain: &str,
     ip: Option<[u8; 4]>,
 ) -> Result<(String, String), Box<dyn std::error::Error>> {
     let mut params = CertificateParams::default();
@@ -68,10 +68,10 @@ pub fn signed_cert_with_ca(
     params.key_usages.push(KeyUsagePurpose::KeyCertSign);
     params.key_usages.push(KeyUsagePurpose::CrlSign);
     let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, domin);
+    dn.push(DnType::CommonName, domain);
     params.distinguished_name = dn;
 
-    params.subject_alt_names = vec![SanType::DnsName(domin.into())];
+    params.subject_alt_names = vec![SanType::DnsName(domain.into())];
     if let Some(v) = ip {
         let ipv4 = std::net::Ipv4Addr::from(v);
         let ip_san = SanType::IpAddress(std::net::IpAddr::V4(ipv4));

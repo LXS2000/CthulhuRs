@@ -544,7 +544,7 @@ impl HttpHandler for Handler {
             return handle_worker(ctx, req, scope_key, &dest).await.into();
         }
         let extensions = {
-            //将extensions保留起来，因为http Request转为JsRequst 这些数据会丢失影响网络连接 比如ws升级
+            //将extensions保留起来，因为http Request转为JsRequest 这些数据会丢失影响网络连接 比如ws协议升级
             let mut extensions = Extensions::new();
             std::mem::swap(req.extensions_mut(), &mut extensions);
             extensions
@@ -702,8 +702,11 @@ impl HttpHandler for Handler {
 
                 let html_inject = |html: String| -> String {
                     //有的接口响应头返回的是text/html 实际却是其他格式 所以通过<!DOCTYPE html>区分
-                  
-                    let tag = &html.trim_start()[0..15];
+                    let ht=html.trim_start();
+                    if !(ht.len()>=15) {
+                        return html;
+                    }
+                    let tag = &ht[0..15];
                     if !tag.eq_ignore_ascii_case("<!doctype html>") {
                         return html;
                     }

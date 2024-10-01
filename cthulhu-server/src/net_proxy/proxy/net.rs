@@ -9,18 +9,14 @@ use crate::{
 
 use futures::{Sink, Stream, StreamExt};
 
-use hyper::{
-    http::{
-        header::SEC_WEBSOCKET_EXTENSIONS,
-        uri::{Authority, Scheme},
-    },
-    service::Service,
-    Method, Request, Response, StatusCode, Uri,
-};
+use hyper::{http::{
+    header::SEC_WEBSOCKET_EXTENSIONS,
+    uri::{Authority, Scheme},
+}, service::Service, Method, Request, Response, StatusCode, Uri, Version};
 
 use hyper::{header::Entry, server::conn::Http, service::service_fn, upgrade::Upgraded, Body};
 use reqwest::Client;
-use rustls::{server::DnsName, ClientConfig};
+use rustls::{server::DnsName, ClientConfig, ServerConfig};
 use std::{
     convert::Infallible,
     future::Future,
@@ -42,6 +38,7 @@ use tokio_tungstenite::{
 };
 use tokio_util::bytes;
 use tracing::{error, info_span, instrument, warn, Instrument, Span};
+use udp_stream::UdpStream;
 
 fn bad_request() -> Response<Body> {
     Response::builder()
@@ -51,12 +48,12 @@ fn bad_request() -> Response<Body> {
 }
 
 fn spawn_with_trace<T: Send + Sync + 'static>(
-    fut: impl Future<Output = T> + Send + 'static,
+    fut: impl Future<Output=T> + Send + 'static,
     span: Span,
 ) -> JoinHandle<T> {
     tokio::spawn(fut.instrument(span))
 }
-async fn connect_to_dns(
+async fn connect_to_dns_tcp(
     authority: &Authority,
     ca: Arc<ClientConfig>,
 ) -> io::Result<TlsStream<TcpStream>> {
@@ -79,6 +76,30 @@ async fn connect_to_dns(
     let stream = connector.connect(server_name, stream).await?;
     Ok(stream)
 }
+async fn connect_to_dns_udp(
+    authority: &Authority,
+    ca: Arc<ClientConfig>,
+) -> io::Result<TlsStream<UdpStream>> {
+    let stream = UdpStream::connect(SocketAddr::from_str(authority.as_str()).unwrap()).await?;
+    let connector = TlsConnector::from(ca);
+    let host = authority.host();
+    let server_name = match DnsName::try_from_ascii(host.as_bytes()) {
+        Ok(v) => rustls::ServerName::DnsName(v),
+        Err(_e) => {
+            let ip = match IpAddr::from_str(host) {
+                Ok(v) => v,
+                Err(_e) => {
+                    panic!("invalid server name:{authority}")
+                }
+            };
+            let ip_address = rustls::ServerName::IpAddress(ip);
+            ip_address
+        }
+    };
+    let stream = connector.connect(server_name, stream).await?;
+    Ok(stream)
+}
+
 pub(crate) struct NetProxy<CA, H, W, P> {
     pub ca: Arc<CA>,
     pub client_provider: P,
@@ -111,7 +132,7 @@ where
     CA: CertificateAuthority,
     H: HttpHandler,
     W: WebSocketHandler,
-    Fut: Future<Output = Client> + Send + Sync + 'static,
+    Fut: Future<Output=Client> + Send + Sync + 'static,
     P: Fn(SocketAddr, Uri) -> Fut + Send + 'static + Clone + Sync,
 {
     fn context(&self, req: &Request<Body>) -> HttpContext {
@@ -220,93 +241,82 @@ where
 
                 return;
             }
-            let server_stream = {
-                if authority.host().ends_with("cthulhu.server") {
-                    None
-                } else {
-                    let random_ja3 = ja3::random_ja3(0);
-                    let stream = match connect_to_dns(&authority, Arc::new(random_ja3)).await {
-                        Ok(v) => v,
-                        Err(e) => {
-                            error!("Failed to connect to dns {}: {}", authority.host(), e);
-                            return;
-                        }
-                    };
-                    Some(stream)
+
+            if authority.host().ends_with("cthulhu.server") {
+                let alpn = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+                if buffer[..2] == *b"\x16\x03" {
+                    let server_config = self
+                        .ca
+                        .gen_server_config(&authority, alpn)
+                        .instrument(info_span!("gen_server_config"))
+                        .await;
+                    self.tls_accept(authority, &uri, server_config, upgraded).await;
+                }
+                return;
+            }
+            let random_ja3 = ja3::random_ja3(0);
+
+            let mut stream = match connect_to_dns_tcp(&authority, Arc::new(random_ja3)).await {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("Failed to connect to dns {}: {}", authority.host(), e);
+                    return;
                 }
             };
             if buffer[..2] == *b"\x16\x03" {
-                let server_config = {
-                    match &server_stream {
-                        Some(stream) => {
-                            let alpn = {
-                                let (_server, client) = stream.get_ref();
-                                let alpn = match client.alpn_protocol() {
-                                    Some(v) => v.to_vec(),
-                                    None => {
-                                        warn!(
-                                            "No protocols were offered or accepted by the peer {}",
-                                            authority
-                                        );
-                                        b"http/1.1".to_vec()
-                                    }
-                                };
-                                alpn
-                            };
-
-                            let server_config = self
-                                .ca
-                                .gen_server_config(&authority, vec![alpn])
-                                .instrument(info_span!("gen_server_config"))
-                                .await;
-                            server_config
-                        }
-                        None => {
-                            let alpn = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-
-                            let server_config = self
-                                .ca
-                                .gen_server_config(&authority, alpn)
-                                .instrument(info_span!("gen_server_config"))
-                                .await;
-                            server_config
-                        }
-                    }
-                };
-
-                let stream = match TlsAcceptor::from(server_config).accept(upgraded).await {
-                    Ok(stream) => stream,
-                    Err(e) => {
-                        error!("Failed to establish TLS connection: {e},URI:{uri}");
-                        return;
-                    }
-                };
-
-                if let Err(e) = self.serve_stream(stream, Scheme::HTTPS, authority).await {
-                    if !e.to_string().starts_with("error shutting down connection") {
-                        error!("HTTPS connect error: {e},URI:{uri}");
-                    }
-                }
-
+                let server_config = Self::from_server_stream_get_alpn(self.ca.clone(), &authority, &stream).await;
+                self.tls_accept(authority, &uri, server_config, upgraded).await;
                 return;
             }
-            warn!(
-                "Unknown protocol, read '{:02X?}' from upgraded connection",
-                &buffer[..bytes_read]
-            );
+            warn!("Unknown protocol, read '{:02X?}' from upgraded connection",&buffer[..bytes_read]);
 
-            if let Some(mut stream) = server_stream {
-                // let (server,_) = stream.get_mut();
-                if let Err(e) = tokio::io::copy_bidirectional(&mut upgraded, &mut stream).await {
-                    error!("Failed to tunnel to {}: {}", authority, e);
-                }
+            if let Err(e) = tokio::io::copy_bidirectional(&mut upgraded, &mut stream).await {
+                error!("Failed to tunnel to {}: {}", authority, e);
             }
         };
 
         spawn_with_trace(fut, span);
         Response::new(Body::empty())
     }
+    async fn from_server_stream_get_alpn<IO>(ca: Arc<CA>, authority: &Authority, stream: &TlsStream<IO>) -> Arc<ServerConfig> {
+        let alpn = {
+            let (_server, client) = stream.get_ref();
+            let alpn = match client.alpn_protocol() {
+                Some(v) => v.to_vec(),
+                None => {
+                    warn!(
+                                            "No protocols were offered or accepted by the peer {}",
+                                            authority
+                                        );
+                    b"http/1.1".to_vec()
+                }
+            };
+            alpn
+        };
 
+        let server_config = ca
+            .gen_server_config(&authority, vec![alpn])
+            .instrument(info_span!("gen_server_config"))
+            .await;
+        server_config
+    }
+
+
+    async fn tls_accept(self, authority: Authority, uri: &Uri, server_config: Arc<ServerConfig>, upgraded: Rewind<Upgraded>) {
+        let stream = match TlsAcceptor::from(server_config).accept(upgraded).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                error!("Failed to establish TLS connection: {e},URI:{uri}");
+                return;
+            }
+        };
+
+        if let Err(e) = self.serve_stream(stream, Scheme::HTTPS, authority).await {
+            if !e.to_string().starts_with("error shutting down connection") {
+                error!("HTTPS connect error: {e},URI:{uri}");
+            }
+        }
+    }
     // #[instrument(skip_all)]
     fn upgrade_websocket(self, req: Request<Body>) -> Response<Body> {
         let mut req = {
@@ -378,7 +388,7 @@ where
             false,
             self.websocket_connector,
         )
-        .await?;
+            .await?;
 
         let (server_sink, server_stream) = server_socket.split();
         let (client_sink, client_stream) = client_socket.split();
@@ -463,9 +473,9 @@ where
 }
 
 fn spawn_message_forwarder(
-    stream: impl Stream<Item = Result<Message, tungstenite::Error>> + Unpin + Send + 'static,
-    src_sink: Arc<Mutex<impl Sink<Message, Error = tungstenite::Error> + Unpin + Send + 'static>>,
-    dst_sink: Arc<Mutex<impl Sink<Message, Error = tungstenite::Error> + Unpin + Send + 'static>>,
+    stream: impl Stream<Item=Result<Message, tungstenite::Error>> + Unpin + Send + 'static,
+    src_sink: Arc<Mutex<impl Sink<Message, Error=tungstenite::Error> + Unpin + Send + 'static>>,
+    dst_sink: Arc<Mutex<impl Sink<Message, Error=tungstenite::Error> + Unpin + Send + 'static>>,
     handler: impl WebSocketHandler,
     ctx: WebSocketContext,
 ) {

@@ -20,7 +20,7 @@ use std::{
     str::FromStr,
     sync::{Mutex, RwLock},
 };
-use std::iter::Map;
+use chrono::format;
 use rquickjs::{
     class::Trace,
     function::{Async, Func},
@@ -72,7 +72,7 @@ pub struct JsUri {
     #[qjs(get, set, enumerable, configurable)]
     pub path: String,
     #[qjs(get, set, enumerable, configurable)]
-    pub params: HashMap<String,Vec<String>>,
+    pub params: HashMap<String, Vec<String>>,
 }
 
 #[rquickjs::methods]
@@ -121,9 +121,13 @@ impl JsUri {
         }
 
         if !self.params.is_empty() {
-            let query = serde_urlencoded::to_string(&self.params).expect("params encode failed");
             uri.push('?');
-            uri.push_str(&query);
+            for (k, v) in &self.params {
+                for x in v {
+                    uri.push_str(&format!("{}={}&", urlencoding::encode(k), urlencoding::encode(x)));
+                }
+            }
+            let _a=uri.pop();
         }
         Ok(uri)
     }
@@ -138,22 +142,29 @@ impl From<&hyper::Uri> for JsUri {
     fn from(uri: &hyper::Uri) -> Self {
         let authority = uri.authority().map(|v| v.to_string()).unwrap_or_default();
         let host = uri.host().map(|v| v.to_string()).unwrap_or_default();
-        let mut params = HashMap::new();
+        let mut params: HashMap<String, Vec<String>> = HashMap::new();
         let path = if let Some(pq) = uri.path_and_query() {
             if let Some(query) = pq.query() {
-                let hash_map =
-                    serde_urlencoded::from_str::<HashMap<String, Vec<String>>>(query).expect(query);
-                params.extend(hash_map)
-                // for item in query.split("&") {
-                //     let (key, value) = match item.split_once("=") {
-                //         Some(v) => v,
-                //         None => continue,
-                //     };
+                // let hash_map =
+                //     serde_urlencoded::from_str::<HashMap<String, String>>(query).expect(query);
+                // param.extend(hash_map)
+                for item in query.split("&") {
+                    let (key, value) = match item.split_once("=") {
+                        Some(v) => v,
+                        None => continue,
+                    };
 
-                //     let k=urlencoding::decode(key).expect(key);
-                //     let v=urlencoding::decode(value).expect(value);
-                //     params.insert(k.to_string(), v.to_string());
-                // }
+                    let k = urlencoding::decode(key).expect(key).to_string();
+                    let v = urlencoding::decode(value).expect(value).to_string();
+                    match params.get_mut(&k) {
+                        None => {
+                            params.insert(k, vec![v]);
+                        }
+                        Some(vals) => {
+                            vals.push(v)
+                        }
+                    }
+                }
             }
             let path = pq.path();
             Some(path.to_string())
@@ -163,6 +174,10 @@ impl From<&hyper::Uri> for JsUri {
             .unwrap_or_default();
         let scheme = uri.scheme_str().map(|v| v.to_string()).unwrap_or_default();
         let port = uri.port_u16().unwrap_or(0);
+        // let mut params = HashMap::new();
+        // for (key,val) in param {
+        //     params.insert(key,vec![val]);
+        // }
         Self {
             scheme,
             authority,

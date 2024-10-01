@@ -1,6 +1,8 @@
-﻿use rand::{rngs::StdRng, seq::SliceRandom};
+﻿use std::sync::Arc;
+use rand::{rngs::StdRng, seq::SliceRandom};
 
-use rustls::{ALL_KX_GROUPS, DEFAULT_CIPHER_SUITES};
+use rustls::{OwnedTrustAnchor, ALL_KX_GROUPS, DEFAULT_CIPHER_SUITES};
+use rustls::client::{ServerCertVerified, ServerCertVerifier};
 use tokio_rustls::rustls::{ClientConfig, RootCertStore, DEFAULT_VERSIONS};
 
 // #[allow(unused)]
@@ -108,10 +110,26 @@ use tokio_rustls::rustls::{ClientConfig, RootCertStore, DEFAULT_VERSIONS};
 //     }
 
 // }
+struct NoCertificateVerification;
 
+impl ServerCertVerifier for NoCertificateVerification {
+    fn verify_server_cert(
+        &self,
+        _: &rustls::Certificate,
+        _: &[rustls::Certificate],
+        _: &rustls::ServerName,
+        _: &mut dyn Iterator<Item=&[u8]>,
+        _: &[u8],
+        _: std::time::SystemTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+}
 pub fn root_store() -> RootCertStore {
     let mut roots = rustls::RootCertStore::empty();
-
+    roots.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+        OwnedTrustAnchor::from_subject_spki_name_constraints(ta.subject, ta.spki, ta.name_constraints)
+    }));
     for cert in rustls_native_certs::load_native_certs().expect("加载本地系统证书失败") {
         let cert = rustls::Certificate(cert.0);
         roots.add(&cert).unwrap();
@@ -123,7 +141,7 @@ pub fn root_store() -> RootCertStore {
 //TLSVersion,Ciphers,Extensions,EllipticCurves,EllipticCurvePointFormats
 pub fn random_ja3(seed: usize) -> ClientConfig {
     let root_store = root_store();
-    let  mut tls_config = if seed == 0 {
+    let mut tls_config = if seed == 0 {
         ClientConfig::builder()
             .with_safe_defaults()
             .with_root_certificates(root_store)
@@ -149,5 +167,8 @@ pub fn random_ja3(seed: usize) -> ClientConfig {
             .with_no_client_auth()
     };
     tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    // Set custom verifier that skips cert verification
+    tls_config.dangerous().set_certificate_verifier(Arc::new(NoCertificateVerification));
+
     tls_config
 }

@@ -41,7 +41,7 @@ pub async fn get_config_by_key(key: &str) -> Option<Config> {
         .await;
     auto_result!(fetch_optional,err=>{
         error!(key,"异常:{:?}", err);
-        return None;
+        None
     })
 }
 pub async fn get_config_by_key_and_parent_id(key: &str, parent_id: i64) -> Option<Config> {
@@ -221,8 +221,8 @@ async fn parse_config_from_sql(config: Config) -> serde_json::Value {
             }
             return serde_json::Value::Object(map);
         }
-        "str" => serde_json::Value::String(config.value),
-        "list" => config.value.split("&&").filter(|v|!v.is_empty()).collect::<Vec<&str>>().into(),
+        "str" => serde_json::from_str(&config.value).expect("字符串格式异常"),
+        "list" => config.value.split("&&").filter(|v| !v.is_empty()).collect::<Vec<&str>>().into(),
         "num" => serde_json::Value::Number(Number::from_str(&config.value).unwrap()),
         "bool" => serde_json::Value::Bool(bool::from_str(&config.value).unwrap_or(false)),
         _ => {
@@ -254,7 +254,7 @@ fn config_to_json_value(
             serde_json::Value::Array(list)
         }
         "str" => serde_json::Value::String(value),
-        "list" => value.split("&&").filter(|v|!v.is_empty()).collect::<Vec<&str>>().into(),
+        "list" => value.split("&&").filter(|v| !v.is_empty()).collect::<Vec<&str>>().into(),
         "num" => serde_json::Value::Number(Number::from_str(&value).unwrap()),
         "bool" => serde_json::Value::Bool(bool::from_str(&value).unwrap_or(false)),
         _ => {
