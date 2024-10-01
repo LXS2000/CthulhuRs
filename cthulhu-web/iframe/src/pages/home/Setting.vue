@@ -3,7 +3,7 @@
     <span style="color: whitesmoke;font-weight: bolder;font-size: 1.3rem;margin: 0 auto">{{ tl("setting") }}</span>
     <!--    <IconBtn name="yes" size="1.6" :color="'#9dfc6d'" style="margin:auto 0.6rem auto 0"/>-->
   </div>
-  <Struct :struct="struct" @on-updated="updated" v-loading=""/>
+  <Struct :struct="struct" @on-updated="updated" />
 </template>
 <script>
 export default {

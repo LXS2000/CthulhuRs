@@ -1,9 +1,6 @@
 target/
 .vscode/
-workspace/
 ca/
 cagen/
 Cargo.lock
-cthulhu.db
-token
 cthulhu.zip

@@ -53,6 +53,8 @@ import Struct from "../components/Struct.vue";
 import Local from "/@/local.js";
 const local = new Local({
   workspace: {zh: "工作目录", en: "workspace directory"},
+  bgColor: {zh: "背景颜色", en: "background color"},
+  dbPath: {zh: "数据库文件地址", en: "db file path"},
   port: {zh: "工作端口", en: "work port"},
   systemProxy: {zh: "设置为系统代理", en: "set as system proxy"},
   enabled: {zh: "是否启用", en: "enabled"},
