@@ -225,7 +225,7 @@ impl HttpHandler for Handler {
         if !is_matched {
             return req.into();
         }
-        // let is_test = req.uri().to_string() == "https://browserleaks.com/css/style.css?v=86540715";
+        // let is_test = req.uri().to_string() == "https://walmart.ca/";
         *req.uri_mut() = Uri::from_static("https://127.0.0.1:520/");
         // req.headers_mut().remove(HOST);
         // let req = decode_request(req).unwrap();
@@ -233,12 +233,7 @@ impl HttpHandler for Handler {
         match call {
             Ok(res) => {
                 // if is_test {
-                //     println!("{:?}", res.version());
-                //     let body = res.collect().await.unwrap();
-                //     let body: String = String::from_utf8(body.to_bytes().to_vec()).unwrap();
-                //     // let body = String::from_utf8(body.to_vec()).unwrap();
-                //     println!("body:\n{}", body);
-                //     return Response::new(Body::empty()).into();
+                //     println!("{:?}", res.headers());
                 // }
                 let mut res = res.map(Body::from);
                 res.headers_mut().remove(CONTENT_ENCODING);
